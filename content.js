@@ -3,17 +3,16 @@
 
   const ANTI_ADBLOCK_MESSAGE =
     /(?:يرجى\s+تعطيل|قم\s+بتعطيل)\s+مانع\s+الإعلان(?:ات|ا+ت)/u;
-  const BACKDROP_SELECTOR =
-    '[x-show="isOpen"][x-on\\:click="close"]';
 
   function hideElement(element) {
     if (!element || !element.style) return;
 
-    const alreadyHidden =
+    if (
       element.style.getPropertyValue("display") === "none" &&
-      element.style.getPropertyPriority("display") === "important";
-
-    if (alreadyHidden) return;
+      element.style.getPropertyPriority("display") === "important"
+    ) {
+      return;
+    }
 
     element.style.setProperty("display", "none", "important");
     element.setAttribute("aria-hidden", "true");
@@ -24,33 +23,35 @@
     return ANTI_ADBLOCK_MESSAGE.test(text);
   }
 
-  function hideAntiAdblockModal() {
-    let foundModal = false;
+  function findAntiAdblockBackdrop(dialog) {
+    for (
+      let ancestor = dialog.parentElement;
+      ancestor && ancestor !== document.documentElement;
+      ancestor = ancestor.parentElement
+    ) {
+      const classes = ancestor.classList;
+      if (
+        classes &&
+        classes.contains("fixed") &&
+        classes.contains("h-full") &&
+        classes.contains("bg-black/60") &&
+        classes.contains("z-50")
+      ) {
+        return ancestor;
+      }
+    }
 
+    return null;
+  }
+
+  function hideAntiAdblockModal() {
     for (const dialog of document.querySelectorAll('[role="dialog"]')) {
       if (!containsAntiAdblockMessage(dialog)) continue;
 
-      foundModal = true;
-      const shell = dialog.parentElement;
-      const isModalShell =
-        shell &&
-        shell.classList &&
-        shell.classList.contains("min-h-full") &&
-        shell.classList.contains("justify-center");
-
-      hideElement(isModalShell ? shell : dialog);
-    }
-
-    if (!foundModal) return;
-
-    for (const backdrop of document.querySelectorAll(BACKDROP_SELECTOR)) {
-      if (
-        backdrop.classList &&
-        backdrop.classList.contains("fixed") &&
-        backdrop.classList.contains("z-50")
-      ) {
-        hideElement(backdrop);
-      }
+      // Hide the full-screen modal wrapper, not just the inner dialog.
+      // Alpine's generated x-on:* event name changes between renders.
+      const backdrop = findAntiAdblockBackdrop(dialog);
+      hideElement(backdrop || dialog);
     }
   }
 
