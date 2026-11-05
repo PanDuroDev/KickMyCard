@@ -173,7 +173,8 @@ function createFullAntiAdblockModal() {
 
   const dialog = centeringWrapper.append(new FakeElement({
     classes: ["bg-white", "sm:max-w-lg"],
-    attributes: { role: "dialog", "aria-labelledby": "modal-5" }
+    attributes: { role: "dialog", "aria-labelledby": "modal-5" },
+    text: "يرجى تعطيل مانع الإعلانات"
   }));
 
   const header = dialog.append(new FakeElement({
