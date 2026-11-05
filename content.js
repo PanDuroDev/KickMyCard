@@ -32,15 +32,21 @@
         return false;
       }
 
+      // Opacity zero hides a dialog visually, but a transparent anchor can
+      // still intercept pointer input. Hit-testing decides overlay eligibility.
       const opacity = Number.parseFloat(style.opacity);
-      if (Number.isFinite(opacity) && opacity <= 0) {
+      if (
+        !options.requirePointerEvents &&
+        Number.isFinite(opacity) &&
+        opacity <= 0
+      ) {
         return false;
       }
 
       if (
         options.requirePointerEvents &&
         (
-          style.pointerEvents === "none" ||
+          (ancestor === element && style.pointerEvents === "none") ||
           ancestor.inert === true ||
           (ancestor.hasAttribute && ancestor.hasAttribute("inert"))
         )
@@ -106,7 +112,7 @@
     if (!isEffectivelyVisible(element, {
       requirePointerEvents: counterType === "overlay"
     })) {
-      return;
+      return false;
     }
 
     element.style.setProperty("display", "none", "important");
@@ -118,7 +124,7 @@
       element.style.getPropertyPriority("display") !== "important" ||
       window.getComputedStyle(element).display !== "none"
     ) {
-      return;
+      return false;
     }
 
     try {
@@ -132,6 +138,8 @@
     } catch {
       // Blocking must continue even when statistics cannot be recorded.
     }
+
+    return true;
   }
 
   /**
@@ -241,8 +249,10 @@
     if (!anchor || anchor.tagName !== "A") return;
 
     if (isFullScreenAdOverlay(anchor)) {
-      hideElement(anchor, "overlay");
+      return hideElement(anchor, "overlay");
     }
+
+    return false;
   }
 
   /**
@@ -250,19 +260,27 @@
    * @param {Document|Element} root Search root.
    */
   function inspectAnchors(root) {
-    if (root === document) {
-      for (const anchor of document.querySelectorAll("a[href]")) {
-        inspectAnchor(anchor);
+    if (!root || (root !== document && root.nodeType !== 1)) return;
+
+    // Hiding a top overlay can expose another matching overlay underneath it.
+    // Repeat the scoped scan while each pass successfully hides an element.
+    let didHideElement;
+    do {
+      didHideElement = false;
+
+      const anchors = root === document
+        ? document.querySelectorAll("a[href]")
+        : [
+            ...(root.matches && root.matches("a[href]") ? [root] : []),
+            ...root.querySelectorAll("a[href]")
+          ];
+
+      for (const anchor of anchors) {
+        if (inspectAnchor(anchor)) {
+          didHideElement = true;
+        }
       }
-      return;
-    }
-
-    if (!root || root.nodeType !== 1) return;
-
-    inspectAnchor(root);
-    for (const anchor of root.querySelectorAll("a[href]")) {
-      inspectAnchor(anchor);
-    }
+    } while (didHideElement);
   }
 
   /**
