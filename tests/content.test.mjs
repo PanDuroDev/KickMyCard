@@ -537,3 +537,15 @@ test("does not count an overlay whose ancestor disables pointer events", () => {
   assert.equal(overlay.style.getPropertyValue("display"), "");
   assert.equal(harness.messages.length, 0);
 });
+
+
+test("does not count a click overlay inside an inert ancestor", () => {
+  const parent = new FakeElement();
+  parent.inert = true;
+  const overlay = createOverlay();
+  parent.append(overlay);
+  const harness = createHarness([parent]);
+
+  assert.equal(overlay.style.getPropertyValue("display"), "");
+  assert.equal(harness.messages.length, 0);
+});
