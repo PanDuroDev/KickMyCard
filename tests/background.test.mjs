@@ -14,7 +14,7 @@ const source = fs.readFileSync(
  * @returns {{send: Function, read: Function}} Message and storage test helpers.
  */
 function createHarness(initial = undefined) {
-  const data = { kickmycardStats: initial };
+  const data = { kickmycardStatsV2: initial };
   let messageListener;
 
   const chrome = {
@@ -47,7 +47,7 @@ function createHarness(initial = undefined) {
       });
     },
     read() {
-      return data.kickmycardStats;
+      return data.kickmycardStatsV2;
     }
   };
 }
