@@ -188,7 +188,10 @@ function createHarness(initialNodes = []) {
         position: "static",
         zIndex: "auto",
         cursor: "auto",
-        ...element.computedStyle
+        ...element.computedStyle,
+        ...(element.style.getPropertyValue("display")
+          ? { display: element.style.getPropertyValue("display") }
+          : {})
       };
     }
   };
