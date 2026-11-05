@@ -52,7 +52,7 @@ class FakeElement {
     classes = [],
     attributes = {},
     href = "",
-    rect = { width: 0, height: 0, top: 0, left: 0 },
+    rect = { width: 1000, height: 800, top: 0, left: 0 },
     computedStyle = {}
   } = {}) {
     this.nodeType = 1;
@@ -180,6 +180,11 @@ function createHarness(initialNodes = []) {
     innerHeight: 800,
     getComputedStyle(element) {
       return {
+        display: "block",
+        visibility: "visible",
+        contentVisibility: "visible",
+        opacity: "1",
+        pointerEvents: "auto",
         position: "static",
         zIndex: "auto",
         cursor: "auto",
@@ -227,6 +232,7 @@ function createFullAntiAdblockModal() {
     text: "يرجى تعطيل مانع الإعلانات"
   }));
 
+  dialog.rect = { width: 600, height: 400, top: 100, left: 200 };
   const header = dialog.append(new FakeElement({
     classes: ["relative", "flex", "flex-row-reverse"]
   }));
@@ -431,4 +437,100 @@ test("does not report the same element more than once while it stays hidden", ()
   }]);
 
   assert.equal(harness.messages.length, 1);
+});
+
+
+test("does not modify or count a matching dialog while Alpine keeps it hidden", () => {
+  const modal = createFullAntiAdblockModal();
+  modal.outer.computedStyle = { display: "none" };
+  const harness = createHarness([modal.outer]);
+
+  assert.equal(modal.outer.style.getPropertyValue("display"), "");
+  assert.equal(modal.outer.attributes.get("aria-hidden"), undefined);
+  assert.equal(harness.messages.length, 0);
+});
+
+test("counts a modal only when Alpine changes it from hidden to visible", () => {
+  const modal = createFullAntiAdblockModal();
+  modal.outer.computedStyle = { display: "none" };
+  const harness = createHarness([modal.outer]);
+
+  modal.outer.computedStyle.display = "block";
+  harness.observer.callback([{
+    type: "attributes",
+    target: modal.outer,
+    attributeName: "style"
+  }]);
+
+  assert.equal(modal.outer.style.getPropertyValue("display"), "none");
+  assert.equal(harness.messages.length, 1);
+  assert.equal(harness.messages[0].target, "modal");
+});
+
+test("does not count a modal hidden by any ancestor", () => {
+  const parent = new FakeElement({ computedStyle: { display: "none" } });
+  const modal = createFullAntiAdblockModal();
+  parent.append(modal.outer);
+  const harness = createHarness([parent]);
+
+  assert.equal(modal.outer.style.getPropertyValue("display"), "");
+  assert.equal(harness.messages.length, 0);
+});
+
+test("does not count a dialog that is transparent or outside the viewport", () => {
+  const transparent = createFullAntiAdblockModal();
+  transparent.outer.computedStyle = { opacity: "0" };
+  const offscreen = createFullAntiAdblockModal();
+  offscreen.outer.rect = {
+    width: 1000, height: 800, top: 900, left: 0
+  };
+  const harness = createHarness([transparent.outer, offscreen.outer]);
+
+  assert.equal(transparent.outer.style.getPropertyValue("display"), "");
+  assert.equal(offscreen.outer.style.getPropertyValue("display"), "");
+  assert.equal(harness.messages.length, 0);
+});
+
+test("does not count an overlay that is hidden or cannot receive pointer input", () => {
+  const hidden = createOverlay();
+  hidden.computedStyle.display = "none";
+  const inert = createOverlay({ href: "https://hai8g.com/another-ad" });
+  inert.computedStyle.pointerEvents = "none";
+  const harness = createHarness([hidden, inert]);
+
+  assert.equal(hidden.style.getPropertyValue("display"), "");
+  assert.equal(inert.style.getPropertyValue("display"), "");
+  assert.equal(harness.messages.length, 0);
+});
+
+test("counts an overlay only when it becomes visible and interactive", () => {
+  const overlay = createOverlay();
+  overlay.computedStyle.display = "none";
+  overlay.computedStyle.pointerEvents = "none";
+  const harness = createHarness([overlay]);
+
+  assert.equal(harness.messages.length, 0);
+  overlay.computedStyle.display = "block";
+  overlay.computedStyle.pointerEvents = "auto";
+  harness.observer.callback([{
+    type: "attributes",
+    target: overlay,
+    attributeName: "style"
+  }]);
+
+  assert.equal(overlay.style.getPropertyValue("display"), "none");
+  assert.equal(harness.messages.length, 1);
+  assert.equal(harness.messages[0].target, "overlay");
+});
+
+test("does not count an overlay whose ancestor disables pointer events", () => {
+  const parent = new FakeElement({
+    computedStyle: { pointerEvents: "none" }
+  });
+  const overlay = createOverlay();
+  parent.append(overlay);
+  const harness = createHarness([parent]);
+
+  assert.equal(overlay.style.getPropertyValue("display"), "");
+  assert.equal(harness.messages.length, 0);
 });
