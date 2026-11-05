@@ -37,7 +37,14 @@
         return false;
       }
 
-      if (options.requirePointerEvents && style.pointerEvents === "none") {
+      if (
+        options.requirePointerEvents &&
+        (
+          style.pointerEvents === "none" ||
+          ancestor.inert === true ||
+          (ancestor.hasAttribute && ancestor.hasAttribute("inert"))
+        )
+      ) {
         return false;
       }
     }
@@ -82,7 +89,8 @@
     // Count only after the inline hiding change was successfully applied.
     if (
       element.style.getPropertyValue("display") !== "none" ||
-      element.style.getPropertyPriority("display") !== "important"
+      element.style.getPropertyPriority("display") !== "important" ||
+      window.getComputedStyle(element).display !== "none"
     ) {
       return;
     }
