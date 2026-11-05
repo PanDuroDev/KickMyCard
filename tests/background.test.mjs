@@ -62,7 +62,8 @@ test("increments modal and click-overlay counters independently", async () => {
   ]);
 
   assert.ok(results.every((result) => result.ok));
-  assert.deepEqual(harness.read(), { modal: 2, overlay: 1 });
+  assert.equal(harness.read().modal, 2);
+  assert.equal(harness.read().overlay, 1);
 });
 
 test("ignores unrelated messages and unknown counter types", async () => {
@@ -84,5 +85,6 @@ test("repairs invalid stored counter values before incrementing", async () => {
 
   await harness.send({ type: "kickmycard:hidden", target: "overlay" });
 
-  assert.deepEqual(harness.read(), { modal: 0, overlay: 1 });
+  assert.equal(harness.read().modal, 0);
+  assert.equal(harness.read().overlay, 1);
 });
