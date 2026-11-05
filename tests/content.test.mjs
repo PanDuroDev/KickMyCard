@@ -149,7 +149,7 @@ class FakeTextNode {
 /**
  * Executes content.js in an isolated fake DOM and exposes its observer.
  * @param {FakeElement[]} initialNodes Nodes present before script startup.
- * @returns {{nodes: FakeElement[], observer: object, documentElement: FakeElement}}
+ * @returns {{nodes: FakeElement[], document: object, observer: object, documentElement: FakeElement|null}}
  */
 function createHarness(initialNodes = [], hitTestTarget = null, options = {}) {
   const nodes = [...initialNodes];
@@ -264,6 +264,7 @@ function createHarness(initialNodes = [], hitTestTarget = null, options = {}) {
 
   return {
     nodes,
+    document,
     observer: observers[0],
     documentElement,
     messages,
