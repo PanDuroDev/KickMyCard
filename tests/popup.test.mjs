@@ -14,7 +14,7 @@ const source = fs.readFileSync(
  * @returns {{elements: Map, emitChange: Function}} Popup test controls.
  */
 function createHarness(initial = undefined) {
-  const ids = ["total-count", "modal-count", "overlay-count", "footnote"];
+  const ids = ["total-count", "modal-count", "overlay-count", "footnote", "status"];
   const elements = new Map(ids.map((id) => [id, { textContent: "" }]));
   let changeListener;
 
@@ -22,7 +22,7 @@ function createHarness(initial = undefined) {
     storage: {
       local: {
         async get() {
-          return { kickmycardStats: initial };
+          return { kickmycardStatsV2: initial };
         }
       },
       onChanged: {
@@ -46,7 +46,7 @@ function createHarness(initial = undefined) {
     elements,
     emitChange(stats) {
       changeListener({
-        kickmycardStats: { newValue: stats }
+        kickmycardStatsV2: { newValue: stats }
       }, "local");
     }
   };
@@ -60,6 +60,7 @@ test("renders saved counters and their total", async () => {
   assert.equal(harness.elements.get("modal-count").textContent, format(7));
   assert.equal(harness.elements.get("overlay-count").textContent, format(3));
   assert.equal(harness.elements.get("total-count").textContent, format(10));
+  assert.equal(harness.elements.get("status").textContent, "تم تسجيل الحجب");
 });
 
 test("updates the popup when stored statistics change", async () => {
@@ -82,4 +83,5 @@ test("starts at zero when no saved statistics exist", async () => {
   assert.equal(harness.elements.get("modal-count").textContent, zero);
   assert.equal(harness.elements.get("overlay-count").textContent, zero);
   assert.equal(harness.elements.get("total-count").textContent, zero);
+  assert.equal(harness.elements.get("status").textContent, "لم يُسجّل حجب بعد");
 });
