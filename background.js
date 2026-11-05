@@ -1,6 +1,6 @@
 "use strict";
 
-const STORAGE_KEY = "kickmycardStats";
+const STORAGE_KEY = "kickmycardStatsV2";
 const COUNTER_TYPES = new Set(["modal", "overlay"]);
 
 let pendingUpdates = Promise.resolve();
