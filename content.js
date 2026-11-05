@@ -8,7 +8,7 @@
    * Hides a matched element without repeatedly writing an already-applied style.
    * @param {Element|null} element Element to hide.
    */
-  function hideElement(element) {
+  function hideElement(element, counterType) {
     if (!element || !element.style) return;
 
     if (
@@ -20,6 +20,19 @@
 
     element.style.setProperty("display", "none", "important");
     element.setAttribute("aria-hidden", "true");
+
+    // The service worker serializes updates so counts remain accurate across tabs.
+    try {
+      const pending = chrome.runtime.sendMessage({
+        type: "kickmycard:hidden",
+        target: counterType
+      });
+      if (pending && typeof pending.catch === "function") {
+        pending.catch(() => {});
+      }
+    } catch {
+      // Blocking must continue even when statistics cannot be recorded.
+    }
   }
 
   /**
@@ -68,7 +81,7 @@
       // Hide the full-screen modal wrapper, not just the inner dialog.
       // Alpine's generated x-on:* event name changes between renders.
       const backdrop = findAntiAdblockBackdrop(dialog);
-      hideElement(backdrop || dialog);
+      hideElement(backdrop || dialog, "modal");
     }
   }
 
@@ -124,7 +137,7 @@
     if (!anchor || anchor.tagName !== "A") return;
 
     if (isFullScreenAdOverlay(anchor)) {
-      hideElement(anchor);
+      hideElement(anchor, "overlay");
     }
   }
 

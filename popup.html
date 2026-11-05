@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>KickMyCard</title>
+  <link rel="stylesheet" href="popup.css">
+  <script src="popup.js" defer></script>
+</head>
+<body>
+  <main class="popup">
+    <header class="header">
+      <div class="brand-mark" aria-hidden="true">K</div>
+      <div class="brand-copy">
+        <h1>KickMyCard</h1>
+        <p>إحصاءات الحجب على Anime3rb</p>
+      </div>
+      <span class="status">جاهزة</span>
+    </header>
+
+    <section class="total-card" aria-live="polite" aria-atomic="true">
+      <span class="card-label">إجمالي مرات الحجب</span>
+      <strong class="total-count" id="total-count">0</strong>
+      <span class="total-caption">عنصر مزعج تم إخفاؤه</span>
+    </section>
+
+    <section class="breakdown" aria-label="تفاصيل الحجب">
+      <article class="stat-card">
+        <span class="stat-indicator modal-indicator" aria-hidden="true"></span>
+        <div class="stat-copy">
+          <span class="stat-label">نافذة تعطيل مانع الإعلانات</span>
+          <strong class="stat-count" id="modal-count">0</strong>
+        </div>
+      </article>
+
+      <article class="stat-card">
+        <span class="stat-indicator overlay-indicator" aria-hidden="true"></span>
+        <div class="stat-copy">
+          <span class="stat-label">طبقة اعتراض النقرات</span>
+          <strong class="stat-count" id="overlay-count">0</strong>
+        </div>
+      </article>
+    </section>
+
+    <p class="footnote" id="footnote">تُحفظ الإحصاءات محلياً على هذا الجهاز.</p>
+  </main>
+</body>
+</html>

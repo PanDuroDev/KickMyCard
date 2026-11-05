@@ -9,6 +9,16 @@ KickMyCard is a lightweight Chrome/Chromium extension that removes two intrusive
 
 The content script also checks elements added dynamically after the page loads.
 
+## Popup statistics
+
+Open the KickMyCard toolbar button to see:
+
+- The total number of elements hidden.
+- How many anti-adblock dialogs were hidden.
+- How many full-screen click overlays were removed.
+
+Counters are stored locally with `chrome.storage.local` and are shared across Anime3rb tabs on the same browser profile. A counter increases only when the extension actually changes a matching element from visible to hidden. Statistics are not sent to an external service.
+
 ## Scope
 
 The extension runs only on `anime3rb.com` and `www.anime3rb.com`. It does not block ordinary ad placements, modify the video player, or remove unrelated dialogs and page content.

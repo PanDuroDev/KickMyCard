@@ -146,6 +146,7 @@ class FakeTextNode {
 function createHarness(initialNodes = []) {
   const nodes = [...initialNodes];
   const observers = [];
+  const messages = [];
   const documentElement = new FakeElement({ tagName: "html" });
 
   const document = {
@@ -192,10 +193,18 @@ function createHarness(initialNodes = []) {
     window,
     location: { href: "https://anime3rb.com/episode/example" },
     URL,
-    MutationObserver: FakeMutationObserver
+    MutationObserver: FakeMutationObserver,
+    chrome: {
+      runtime: {
+        sendMessage(message) {
+          messages.push(message);
+          return Promise.resolve({ ok: true });
+        }
+      }
+    }
   });
 
-  return { nodes, observer: observers[0], documentElement };
+  return { nodes, observer: observers[0], documentElement, messages };
 }
 
 /** Builds the anti-adblock modal structure supplied for this project. */
@@ -246,8 +255,11 @@ function createOverlay({
 
 test("hides the complete modal wrapper and dark backdrop from the supplied HTML", () => {
   const modal = createFullAntiAdblockModal();
-  createHarness([modal.outer]);
+  const harness = createHarness([modal.outer]);
 
+  assert.equal(harness.messages.length, 1);
+  assert.equal(harness.messages[0].type, "kickmycard:hidden");
+  assert.equal(harness.messages[0].target, "modal");
   assert.equal(modal.outer.style.getPropertyValue("display"), "none");
   assert.equal(modal.outer.style.getPropertyPriority("display"), "important");
   assert.equal(modal.dialog.style.getPropertyValue("display"), "");
@@ -273,8 +285,11 @@ test("leaves unrelated dialogs untouched", () => {
 
 test("hides the supplied full-screen hai8g.com click overlay", () => {
   const overlay = createOverlay();
-  createHarness([overlay]);
+  const harness = createHarness([overlay]);
 
+  assert.equal(harness.messages.length, 1);
+  assert.equal(harness.messages[0].type, "kickmycard:hidden");
+  assert.equal(harness.messages[0].target, "overlay");
   assert.equal(overlay.style.getPropertyValue("display"), "none");
   assert.equal(overlay.style.getPropertyPriority("display"), "important");
 });
@@ -402,4 +417,18 @@ test("registers the observer with the required subtree and mutation options", ()
     [...harness.observer.options.attributeFilter],
     ["style", "href", "class", "role"]
   );
+});
+
+
+test("does not report the same element more than once while it stays hidden", () => {
+  const modal = createFullAntiAdblockModal();
+  const harness = createHarness([modal.outer]);
+
+  harness.observer.callback([{
+    type: "attributes",
+    target: modal.outer,
+    attributeName: "style"
+  }]);
+
+  assert.equal(harness.messages.length, 1);
 });
