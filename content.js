@@ -4,6 +4,10 @@
   const ANTI_ADBLOCK_MESSAGE =
     /(?:يرجى\s+تعطيل|قم\s+بتعطيل)\s+مانع\s+الإعلان(?:ات|ا+ت)/u;
 
+  /**
+   * Hides a matched element without repeatedly writing an already-applied style.
+   * @param {Element|null} element Element to hide.
+   */
   function hideElement(element) {
     if (!element || !element.style) return;
 
@@ -18,11 +22,21 @@
     element.setAttribute("aria-hidden", "true");
   }
 
+  /**
+   * Checks whether an element contains the supported Arabic anti-adblock message.
+   * @param {Element} element Element whose text should be checked.
+   * @returns {boolean} True when the message is present.
+   */
   function containsAntiAdblockMessage(element) {
     const text = (element.textContent || "").replace(/\s+/g, " ");
     return ANTI_ADBLOCK_MESSAGE.test(text);
   }
 
+  /**
+   * Finds the supplied page's full-screen modal wrapper around a dialog.
+   * @param {Element} dialog Anti-adblock dialog element.
+   * @returns {Element|null} Matching backdrop wrapper, if present.
+   */
   function findAntiAdblockBackdrop(dialog) {
     for (
       let ancestor = dialog.parentElement;
@@ -44,6 +58,9 @@
     return null;
   }
 
+  /**
+   * Hides matching dialogs and their known full-screen backdrop wrappers.
+   */
   function hideAntiAdblockModal() {
     for (const dialog of document.querySelectorAll('[role="dialog"]')) {
       if (!containsAntiAdblockMessage(dialog)) continue;
@@ -55,6 +72,11 @@
     }
   }
 
+  /**
+   * Identifies a fixed anchor covering the viewport and matching the ad signature.
+   * @param {HTMLAnchorElement} anchor Anchor to inspect.
+   * @returns {boolean} True when the anchor is the known click-interception layer.
+   */
   function isFullScreenAdOverlay(anchor) {
     const rawHref = anchor.href || anchor.getAttribute("href");
     if (!rawHref) return false;
@@ -94,6 +116,10 @@
     return knownAdHost || matchesOverlaySignature;
   }
 
+  /**
+   * Hides an anchor when it matches the full-screen ad overlay signature.
+   * @param {Element} anchor Candidate anchor.
+   */
   function inspectAnchor(anchor) {
     if (!anchor || anchor.tagName !== "A") return;
 
@@ -102,6 +128,10 @@
     }
   }
 
+  /**
+   * Inspects an element and all descendant anchors for click-interception overlays.
+   * @param {Document|Element} root Search root.
+   */
   function inspectAnchors(root) {
     if (root === document) {
       for (const anchor of document.querySelectorAll("a[href]")) {
@@ -118,17 +148,35 @@
     }
   }
 
-  function isInsideDialog(element) {
-    return Boolean(
-      element &&
-      element.nodeType === 1 &&
-      (
-        (element.matches && element.matches('[role="dialog"]')) ||
-        (element.closest && element.closest('[role="dialog"]'))
-      )
-    );
+  /**
+   * Checks whether an element or text node is inside a dialog.
+   * @param {Node|null} node Node to check.
+   * @returns {boolean} True when the node belongs to a dialog subtree.
+   */
+  function isInsideDialog(node) {
+    let element = node && node.nodeType === 1
+      ? node
+      : node && (node.parentElement || node.parentNode);
+
+    while (element && element !== document.documentElement) {
+      if (
+        element.nodeType === 1 &&
+        element.matches &&
+        element.matches('[role="dialog"]')
+      ) {
+        return true;
+      }
+      element = element.parentElement;
+    }
+
+    return false;
   }
 
+  /**
+   * Checks whether an element is or contains a dialog.
+   * @param {Element|null} element Candidate element.
+   * @returns {boolean} True when a dialog is found.
+   */
   function containsDialog(element) {
     return Boolean(
       element &&
@@ -140,22 +188,41 @@
     );
   }
 
+  /**
+   * Processes DOM changes and rechecks affected anchors and anti-adblock dialogs.
+   * @param {MutationRecord[]} records Mutation records reported by the observer.
+   */
   function handleMutations(records) {
     let shouldInspectDialogs = false;
 
     for (const record of records) {
       if (record.type === "attributes") {
-        if (record.target.tagName === "A") {
-          inspectAnchor(record.target);
+        const target = record.target;
+        const attributeName = record.attributeName;
+
+        if (
+          attributeName === "style" ||
+          attributeName === "class" ||
+          (attributeName === "href" && target.tagName === "A")
+        ) {
+          // Ancestor style/class changes can activate a descendant overlay.
+          inspectAnchors(target);
         }
 
         if (
-          isInsideDialog(record.target) ||
-          containsDialog(record.target)
+          isInsideDialog(target) ||
+          containsDialog(target)
         ) {
           shouldInspectDialogs = true;
         }
 
+        continue;
+      }
+
+      if (record.type === "characterData") {
+        if (isInsideDialog(record.target)) {
+          shouldInspectDialogs = true;
+        }
         continue;
       }
 
@@ -190,6 +257,7 @@
     subtree: true,
     childList: true,
     attributes: true,
-    attributeFilter: ["style", "href", "class"]
+    attributeFilter: ["style", "href", "class", "role"],
+    characterData: true
   });
 })();
