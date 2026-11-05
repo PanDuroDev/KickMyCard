@@ -8,11 +8,9 @@ const source = fs.readFileSync(
   "utf8"
 );
 
-const BACKDROP_SELECTOR = '[x-show="isOpen"][x-on\\:click="close"]';
-
 class FakeStyle {
-  constructor(values = {}) {
-    this.values = new Map(Object.entries(values));
+  constructor() {
+    this.values = new Map();
     this.priorities = new Map();
   }
 
@@ -53,7 +51,6 @@ class FakeElement {
     this.nodeType = 1;
     this.tagName = tagName.toUpperCase();
     this.textContent = text;
-    this.innerText = text;
     this.classList = new FakeClassList(classes);
     this.attributes = new Map(Object.entries(attributes));
     this.style = new FakeStyle();
@@ -82,18 +79,10 @@ class FakeElement {
     if (selector === '[role="dialog"]') {
       return this.getAttribute("role") === "dialog";
     }
-
-    if (selector === BACKDROP_SELECTOR) {
-      return (
-        this.getAttribute("x-show") === "isOpen" &&
-        this.getAttribute("x-on:click") === "close"
-      );
-    }
-
     if (selector === "a[href]") {
-      return this.tagName === "A" && Boolean(this.href || this.getAttribute("href"));
+      return this.tagName === "A" &&
+        Boolean(this.href || this.getAttribute("href"));
     }
-
     return false;
   }
 
@@ -110,14 +99,12 @@ class FakeElement {
 
   querySelectorAll(selector) {
     const matches = [];
-
     const visit = (element) => {
       for (const child of element.children) {
         if (child.matches(selector)) matches.push(child);
         visit(child);
       }
     };
-
     visit(this);
     return matches;
   }
@@ -130,11 +117,9 @@ class FakeElement {
 function createHarness(initialNodes = []) {
   const nodes = [...initialNodes];
   const observers = [];
-  const body = new FakeElement({ tagName: "body" });
   const documentElement = new FakeElement({ tagName: "html" });
 
   const document = {
-    body,
     documentElement,
     querySelectorAll(selector) {
       return nodes.filter((node) => node.matches(selector));
@@ -146,7 +131,6 @@ function createHarness(initialNodes = []) {
       this.callback = callback;
       observers.push(this);
     }
-
     observe() {}
   }
 
@@ -156,8 +140,6 @@ function createHarness(initialNodes = []) {
     getComputedStyle(element) {
       return {
         position: "static",
-        top: "auto",
-        left: "auto",
         zIndex: "auto",
         cursor: "auto",
         ...element.computedStyle
@@ -173,37 +155,38 @@ function createHarness(initialNodes = []) {
     MutationObserver: FakeMutationObserver
   });
 
-  return {
-    nodes,
-    body,
-    observer: observers[0]
-  };
+  return { nodes, observer: observers[0] };
 }
 
-function createAntiAdblockElements() {
-  const shell = new FakeElement({
-    classes: ["min-h-full", "justify-center"]
-  });
-
-  const dialog = new FakeElement({
-    attributes: { role: "dialog" },
-    text: "يرجى تعطيل مانع الإعلانات قم بتعطيل مانع الإعلاناااات !!!"
-  });
-
-  shell.append(dialog);
-
-  const backdrop = new FakeElement({
-    classes: ["fixed", "z-50"],
+function createFullAntiAdblockModal() {
+  const outer = new FakeElement({
+    classes: ["fixed", "h-full", "bg-black/60", "overflow-auto", "z-50"],
     attributes: {
       "x-show": "isOpen",
-      "x-on:click": "close"
+      "x-on:zkqz0pik.window": "dynamic-event"
     }
   });
 
-  return { shell, dialog, backdrop };
+  const centeringWrapper = outer.append(new FakeElement({
+    classes: ["w-full", "h-auto", "min-h-full", "flex", "justify-center"]
+  }));
+
+  const dialog = centeringWrapper.append(new FakeElement({
+    classes: ["bg-white", "sm:max-w-lg"],
+    attributes: { role: "dialog", "aria-labelledby": "modal-5" }
+  }));
+
+  const header = dialog.append(new FakeElement({
+    classes: ["relative", "flex", "flex-row-reverse"]
+  }));
+  header.append(new FakeElement({
+    text: "يرجى تعطيل مانع الإعلانات"
+  }));
+
+  return { outer, centeringWrapper, dialog };
 }
 
-function createFullScreenOverlay({
+function createOverlay({
   href = "https://hai8g.com/4/9023731",
   zIndex = "999",
   cursor = "default",
@@ -214,90 +197,92 @@ function createFullScreenOverlay({
     tagName: "a",
     href,
     rect: { width, height, top: 0, left: 0 },
-    computedStyle: {
-      position: "fixed",
-      zIndex,
-      cursor
-    }
+    computedStyle: { position: "fixed", zIndex, cursor }
   });
 }
 
-test("hides the anti-adblock dialog shell and its matching backdrop", () => {
-  const { shell, backdrop } = createAntiAdblockElements();
-  createHarness([shell, shell.children[0], backdrop]);
+test("hides the complete modal wrapper and dark backdrop from the supplied HTML", () => {
+  const modal = createFullAntiAdblockModal();
+  createHarness([modal.outer, modal.dialog]);
 
-  assert.equal(shell.style.getPropertyValue("display"), "none");
-  assert.equal(shell.style.getPropertyPriority("display"), "important");
-  assert.equal(backdrop.style.getPropertyValue("display"), "none");
+  assert.equal(modal.outer.style.getPropertyValue("display"), "none");
+  assert.equal(modal.outer.style.getPropertyPriority("display"), "important");
+  assert.equal(modal.dialog.style.getPropertyValue("display"), "");
 });
 
-test("does not hide unrelated dialogs or ordinary links", () => {
-  const unrelatedDialog = new FakeElement({
+test("does not depend on the randomized Alpine window event name", () => {
+  const modal = createFullAntiAdblockModal();
+  modal.outer.attributes.set("x-on:another-random-id.window", "different-event");
+  createHarness([modal.outer, modal.dialog]);
+
+  assert.equal(modal.outer.style.getPropertyValue("display"), "none");
+});
+
+test("leaves unrelated dialogs untouched", () => {
+  const unrelated = new FakeElement({
     attributes: { role: "dialog" },
     text: "يرجى تعطيل الفيديو قبل المتابعة"
   });
 
-  const ordinaryLink = createFullScreenOverlay({
-    href: "https://example.com/watch",
-    zIndex: "10",
-    cursor: "pointer",
-    width: 250,
-    height: 100
-  });
-
-  createHarness([unrelatedDialog, ordinaryLink]);
-
-  assert.equal(unrelatedDialog.style.getPropertyValue("display"), "");
-  assert.equal(ordinaryLink.style.getPropertyValue("display"), "");
+  createHarness([unrelated]);
+  assert.equal(unrelated.style.getPropertyValue("display"), "");
 });
 
 test("hides the supplied full-screen hai8g.com click overlay", () => {
-  const overlay = createFullScreenOverlay();
+  const overlay = createOverlay();
   createHarness([overlay]);
 
   assert.equal(overlay.style.getPropertyValue("display"), "none");
   assert.equal(overlay.style.getPropertyPriority("display"), "important");
 });
 
-test("detects a full-screen overlay when its destination host changes", () => {
-  const overlay = createFullScreenOverlay({
+test("detects the full-screen overlay signature when its host rotates", () => {
+  const overlay = createOverlay({
     href: "https://rotating-ad.example/click",
-    zIndex: "1000",
-    cursor: "default"
+    zIndex: "1000"
   });
-
   createHarness([overlay]);
 
   assert.equal(overlay.style.getPropertyValue("display"), "none");
 });
 
-test("detects matching overlays inserted after the initial page scan", () => {
-  const harness = createHarness();
-  const overlay = createFullScreenOverlay({
-    href: "https://rotating-ad.example/click"
+test("does not hide ordinary links or partial-screen anchors", () => {
+  const ordinaryLink = createOverlay({
+    href: "https://example.com/watch",
+    zIndex: "10",
+    cursor: "pointer",
+    width: 250,
+    height: 100
   });
+  createHarness([ordinaryLink]);
+
+  assert.equal(ordinaryLink.style.getPropertyValue("display"), "");
+});
+
+test("detects an overlay inserted after page load", () => {
+  const harness = createHarness();
+  const overlay = createOverlay({ href: "https://rotating-ad.example/click" });
 
   harness.nodes.push(overlay);
   harness.observer.callback([{
     type: "childList",
-    target: harness.body,
+    target: new FakeElement(),
     addedNodes: [overlay]
   }]);
 
   assert.equal(overlay.style.getPropertyValue("display"), "none");
 });
 
-test("detects anti-adblock dialogs inserted after the initial page scan", () => {
+test("detects the complete modal when inserted after page load", () => {
   const harness = createHarness();
-  const { shell, dialog, backdrop } = createAntiAdblockElements();
+  const modal = createFullAntiAdblockModal();
 
-  harness.nodes.push(shell, dialog, backdrop);
+  harness.nodes.push(modal.outer, modal.dialog);
   harness.observer.callback([{
     type: "childList",
-    target: harness.body,
-    addedNodes: [shell, backdrop]
+    target: new FakeElement(),
+    addedNodes: [modal.outer]
   }]);
 
-  assert.equal(shell.style.getPropertyValue("display"), "none");
-  assert.equal(backdrop.style.getPropertyValue("display"), "none");
+  assert.equal(modal.outer.style.getPropertyValue("display"), "none");
 });
