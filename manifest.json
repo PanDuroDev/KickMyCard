@@ -1,8 +1,18 @@
 {
   "manifest_version": 3,
   "name": "KickMyCard",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Hides Anime3rb anti-adblock dialogs and invisible full-screen ad overlays.",
+  "permissions": [
+    "storage"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "KickMyCard"
+  },
   "content_scripts": [
     {
       "matches": [
