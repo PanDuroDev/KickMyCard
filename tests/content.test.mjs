@@ -151,11 +151,11 @@ class FakeTextNode {
  * @param {FakeElement[]} initialNodes Nodes present before script startup.
  * @returns {{nodes: FakeElement[], observer: object, documentElement: FakeElement}}
  */
-function createHarness(initialNodes = []) {
+function createHarness(initialNodes = [], hitTestTarget = null) {
   const nodes = [...initialNodes];
   const observers = [];
   const messages = [];
-  let hitTestOverride = null;
+  let hitTestOverride = hitTestTarget ? () => hitTestTarget : null;
   const documentElement = new FakeElement({ tagName: "html" });
 
   const document = {
@@ -582,8 +582,7 @@ test("does not count a click overlay inside an inert ancestor", () => {
 test("does not count a fullscreen anchor that is behind another element", () => {
   const overlay = createOverlay();
   const coveringElement = new FakeElement();
-  const harness = createHarness([overlay]);
-  harness.setElementFromPoint(coveringElement);
+  const harness = createHarness([overlay], coveringElement);
 
   assert.equal(overlay.style.getPropertyValue("display"), "");
   assert.equal(harness.messages.length, 0);
