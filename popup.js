@@ -1,14 +1,15 @@
 (() => {
   "use strict";
 
-  const STORAGE_KEY = "kickmycardStats";
+  const STORAGE_KEY = "kickmycardStatsV2";
   const formatter = new Intl.NumberFormat("ar");
 
   const elements = {
     total: document.getElementById("total-count"),
     modal: document.getElementById("modal-count"),
     overlay: document.getElementById("overlay-count"),
-    footnote: document.getElementById("footnote")
+    footnote: document.getElementById("footnote"),
+    status: document.getElementById("status")
   };
 
   /**
@@ -30,7 +31,11 @@
 
     elements.modal.textContent = formatter.format(modal);
     elements.overlay.textContent = formatter.format(overlay);
-    elements.total.textContent = formatter.format(modal + overlay);
+    const total = modal + overlay;
+    elements.total.textContent = formatter.format(total);
+    elements.status.textContent = total > 0
+      ? "تم تسجيل الحجب"
+      : "لم يُسجّل حجب بعد";
   }
 
   /**
