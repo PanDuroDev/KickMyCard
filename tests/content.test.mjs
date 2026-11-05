@@ -169,7 +169,35 @@ function createHarness(initialNodes = [], hitTestTarget = null) {
         for (const child of element.children) visit(child);
       };
       for (const node of nodes) visit(node);
-      return anchors.at(-1) ?? null;
+
+      return anchors.reverse().find((anchor) => {
+        const style = {
+          display: "block",
+          visibility: "visible",
+          pointerEvents: "auto",
+          ...anchor.computedStyle,
+          ...(anchor.style.getPropertyValue("display")
+            ? { display: anchor.style.getPropertyValue("display") }
+            : {})
+        };
+
+        if (style.display === "none" || style.visibility === "hidden" ||
+            style.pointerEvents === "none") {
+          return false;
+        }
+
+        for (
+          let ancestor = anchor.parentElement;
+          ancestor;
+          ancestor = ancestor.parentElement
+        ) {
+          if (ancestor.inert || ancestor.attributes?.has("inert")) {
+            return false;
+          }
+        }
+
+        return true;
+      }) ?? null;
     },
     querySelectorAll(selector) {
       const matches = [];
@@ -554,16 +582,18 @@ test("counts an overlay only when it becomes visible and interactive", () => {
   assert.equal(harness.messages[0].target, "overlay");
 });
 
-test("does not count an overlay whose ancestor disables pointer events", () => {
+test("counts a pointer-enabled overlay inside a pointer-events-none ancestor", () => {
   const parent = new FakeElement({
     computedStyle: { pointerEvents: "none" }
   });
   const overlay = createOverlay();
+  overlay.computedStyle.pointerEvents = "auto";
   parent.append(overlay);
   const harness = createHarness([parent]);
 
-  assert.equal(overlay.style.getPropertyValue("display"), "");
-  assert.equal(harness.messages.length, 0);
+  assert.equal(overlay.style.getPropertyValue("display"), "none");
+  assert.equal(harness.messages.length, 1);
+  assert.equal(harness.messages[0].target, "overlay");
 });
 
 
@@ -586,4 +616,33 @@ test("does not count a fullscreen anchor that is behind another element", () => 
 
   assert.equal(overlay.style.getPropertyValue("display"), "");
   assert.equal(harness.messages.length, 0);
+});
+
+
+test("counts transparent click overlays when hit-testing proves they intercept input", () => {
+  const overlay = createOverlay();
+  overlay.computedStyle.opacity = "0";
+  const harness = createHarness([overlay]);
+
+  assert.equal(overlay.style.getPropertyValue("display"), "none");
+  assert.equal(harness.messages.length, 1);
+  assert.equal(harness.messages[0].target, "overlay");
+});
+
+test("rescans lower overlays after hiding the overlay above them", () => {
+  const lowerOverlay = createOverlay({
+    href: "https://hai8g.com/lower"
+  });
+  const upperOverlay = createOverlay({
+    href: "https://hai8g.com/upper"
+  });
+  const harness = createHarness([lowerOverlay, upperOverlay]);
+
+  assert.equal(lowerOverlay.style.getPropertyValue("display"), "none");
+  assert.equal(upperOverlay.style.getPropertyValue("display"), "none");
+  assert.equal(harness.messages.length, 2);
+  assert.deepEqual(
+    harness.messages.map((message) => message.target),
+    ["overlay", "overlay"]
+  );
 });
