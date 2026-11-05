@@ -63,12 +63,38 @@
     const viewportHeight =
       window.innerHeight || document.documentElement.clientHeight || 0;
 
-    return (
+    const intersectsViewport =
       right > 0 &&
       bottom > 0 &&
       left < viewportWidth &&
-      top < viewportHeight
-    );
+      top < viewportHeight;
+
+    if (!intersectsViewport) return false;
+
+    if (options.requirePointerEvents && typeof document.elementFromPoint === "function") {
+      const samplePositions = [0.1, 0.5, 0.9];
+      let hitCount = 0;
+
+      for (const xRatio of samplePositions) {
+        for (const yRatio of samplePositions) {
+          const x = viewportWidth * xRatio;
+          const y = viewportHeight * yRatio;
+          const hit = document.elementFromPoint(x, y);
+
+          if (
+            hit === element ||
+            (hit && element.contains && element.contains(hit))
+          ) {
+            hitCount += 1;
+          }
+        }
+      }
+
+      // A full-screen overlay must be the actual hit target across most of the viewport.
+      if (hitCount < 5) return false;
+    }
+
+    return true;
   }
 
   /**
