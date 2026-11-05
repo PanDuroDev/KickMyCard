@@ -5,23 +5,128 @@
     /(?:يرجى\s+تعطيل|قم\s+بتعطيل)\s+مانع\s+الإعلان(?:ات|ا+ت)/u;
 
   /**
-   * Hides a matched element without repeatedly writing an already-applied style.
+   * Determines whether an element is currently rendered and, when requested,
+   * able to receive pointer input. Hidden ancestors and zero-opacity layers
+   * are treated as not visible.
+   * @param {Element|null} element Element to inspect.
+   * @param {{requirePointerEvents?: boolean}} options Visibility requirements.
+   * @returns {boolean} Whether the element is currently visible to the user.
+   */
+  function isEffectivelyVisible(element, options = {}) {
+    if (!element || !element.getBoundingClientRect) return false;
+
+    for (
+      let ancestor = element;
+      ancestor && ancestor !== document.documentElement;
+      ancestor = ancestor.parentElement
+    ) {
+      if (ancestor.nodeType !== 1) continue;
+
+      const style = window.getComputedStyle(ancestor);
+      if (
+        style.display === "none" ||
+        style.visibility === "hidden" ||
+        style.visibility === "collapse" ||
+        style.contentVisibility === "hidden"
+      ) {
+        return false;
+      }
+
+      // Opacity zero hides a dialog visually, but a transparent anchor can
+      // still intercept pointer input. Hit-testing decides overlay eligibility.
+      const opacity = Number.parseFloat(style.opacity);
+      if (
+        !options.requirePointerEvents &&
+        Number.isFinite(opacity) &&
+        opacity <= 0
+      ) {
+        return false;
+      }
+
+      if (
+        options.requirePointerEvents &&
+        (
+          (ancestor === element && style.pointerEvents === "none") ||
+          ancestor.inert === true ||
+          (ancestor.hasAttribute && ancestor.hasAttribute("inert"))
+        )
+      ) {
+        return false;
+      }
+    }
+
+    const rect = element.getBoundingClientRect();
+    const width = Number(rect.width) || 0;
+    const height = Number(rect.height) || 0;
+    if (width <= 0 || height <= 0) return false;
+
+    const left = Number(rect.left) || 0;
+    const top = Number(rect.top) || 0;
+    const right = Number.isFinite(rect.right) ? rect.right : left + width;
+    const bottom = Number.isFinite(rect.bottom) ? rect.bottom : top + height;
+    const viewportWidth =
+      window.innerWidth || document.documentElement.clientWidth || 0;
+    const viewportHeight =
+      window.innerHeight || document.documentElement.clientHeight || 0;
+
+    const intersectsViewport =
+      right > 0 &&
+      bottom > 0 &&
+      left < viewportWidth &&
+      top < viewportHeight;
+
+    if (!intersectsViewport) return false;
+
+    if (options.requirePointerEvents && typeof document.elementFromPoint === "function") {
+      const samplePositions = [0.1, 0.5, 0.9];
+      let hitCount = 0;
+
+      for (const xRatio of samplePositions) {
+        for (const yRatio of samplePositions) {
+          const x = viewportWidth * xRatio;
+          const y = viewportHeight * yRatio;
+          const hit = document.elementFromPoint(x, y);
+
+          if (
+            hit === element ||
+            (hit && element.contains && element.contains(hit))
+          ) {
+            hitCount += 1;
+          }
+        }
+      }
+
+      // A full-screen overlay must be the actual hit target across most of the viewport.
+      if (hitCount < 5) return false;
+    }
+
+    return true;
+  }
+
+  /**
+   * Hides a currently visible matching element and records only a real change.
    * @param {Element|null} element Element to hide.
+   * @param {"modal"|"overlay"} counterType Counter category.
    */
   function hideElement(element, counterType) {
-    if (!element || !element.style) return;
-
-    if (
-      element.style.getPropertyValue("display") === "none" &&
-      element.style.getPropertyPriority("display") === "important"
-    ) {
-      return;
+    if (!isEffectivelyVisible(element, {
+      requirePointerEvents: counterType === "overlay"
+    })) {
+      return false;
     }
 
     element.style.setProperty("display", "none", "important");
     element.setAttribute("aria-hidden", "true");
 
-    // The service worker serializes updates so counts remain accurate across tabs.
+    // Count only after the inline hiding change was successfully applied.
+    if (
+      element.style.getPropertyValue("display") !== "none" ||
+      element.style.getPropertyPriority("display") !== "important" ||
+      window.getComputedStyle(element).display !== "none"
+    ) {
+      return false;
+    }
+
     try {
       const pending = chrome.runtime.sendMessage({
         type: "kickmycard:hidden",
@@ -33,6 +138,8 @@
     } catch {
       // Blocking must continue even when statistics cannot be recorded.
     }
+
+    return true;
   }
 
   /**
@@ -72,11 +179,16 @@
   }
 
   /**
-   * Hides matching dialogs and their known full-screen backdrop wrappers.
+   * Hides only anti-adblock dialogs that are actually visible.
    */
   function hideAntiAdblockModal() {
     for (const dialog of document.querySelectorAll('[role="dialog"]')) {
-      if (!containsAntiAdblockMessage(dialog)) continue;
+      if (
+        !containsAntiAdblockMessage(dialog) ||
+        !isEffectivelyVisible(dialog)
+      ) {
+        continue;
+      }
 
       // Hide the full-screen modal wrapper, not just the inner dialog.
       // Alpine's generated x-on:* event name changes between renders.
@@ -130,15 +242,17 @@
   }
 
   /**
-   * Hides an anchor when it matches the full-screen ad overlay signature.
+   * Hides an anchor when it is a visible, interactive full-screen ad overlay.
    * @param {Element} anchor Candidate anchor.
    */
   function inspectAnchor(anchor) {
     if (!anchor || anchor.tagName !== "A") return;
 
     if (isFullScreenAdOverlay(anchor)) {
-      hideElement(anchor, "overlay");
+      return hideElement(anchor, "overlay");
     }
+
+    return false;
   }
 
   /**
@@ -146,19 +260,27 @@
    * @param {Document|Element} root Search root.
    */
   function inspectAnchors(root) {
-    if (root === document) {
-      for (const anchor of document.querySelectorAll("a[href]")) {
-        inspectAnchor(anchor);
+    if (!root || (root !== document && root.nodeType !== 1)) return;
+
+    // Hiding a top overlay can expose another matching overlay underneath it.
+    // Repeat the scoped scan while each pass successfully hides an element.
+    let didHideElement;
+    do {
+      didHideElement = false;
+
+      const anchors = root === document
+        ? document.querySelectorAll("a[href]")
+        : [
+            ...(root.matches && root.matches("a[href]") ? [root] : []),
+            ...root.querySelectorAll("a[href]")
+          ];
+
+      for (const anchor of anchors) {
+        if (inspectAnchor(anchor)) {
+          didHideElement = true;
+        }
       }
-      return;
-    }
-
-    if (!root || root.nodeType !== 1) return;
-
-    inspectAnchor(root);
-    for (const anchor of root.querySelectorAll("a[href]")) {
-      inspectAnchor(anchor);
-    }
+    } while (didHideElement);
   }
 
   /**
@@ -202,7 +324,7 @@
   }
 
   /**
-   * Processes DOM changes and rechecks affected anchors and anti-adblock dialogs.
+   * Processes DOM changes and rechecks affected anchors and visible dialogs.
    * @param {MutationRecord[]} records Mutation records reported by the observer.
    */
   function handleMutations(records) {

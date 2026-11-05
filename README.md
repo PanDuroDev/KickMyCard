@@ -11,13 +11,11 @@ The content script also checks elements added dynamically after the page loads.
 
 ## Popup statistics
 
-Open the KickMyCard toolbar button to see:
+Open the KickMyCard toolbar button to see the total number of elements hidden, with separate counts for anti-adblock dialogs and full-screen click overlays.
 
-- The total number of elements hidden.
-- How many anti-adblock dialogs were hidden.
-- How many full-screen click overlays were removed.
+A counter increases only after the extension successfully hides a matching element that was actually active. Anti-adblock dialogs must be rendered in the viewport. Click overlays must pass viewport hit-testing, so transparent anchors are counted when they really intercept pointer input, while covered, off-screen, hidden, inert, or non-interactive elements are not. When an upper overlay is hidden, the extension rescans to catch matching overlays exposed underneath. Counters are stored locally with `chrome.storage.local`, shared across Anime3rb tabs in the same browser profile, and are not sent to an external service.
 
-Counters are stored locally with `chrome.storage.local` and are shared across Anime3rb tabs on the same browser profile. A counter increases only when the extension actually changes a matching element from visible to hidden. Statistics are not sent to an external service.
+Version 1.1.1 starts a fresh statistics series because counts from version 1.1.0 could include elements that were already hidden.
 
 ## Scope
 

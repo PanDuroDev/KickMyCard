@@ -52,7 +52,7 @@ class FakeElement {
     classes = [],
     attributes = {},
     href = "",
-    rect = { width: 0, height: 0, top: 0, left: 0 },
+    rect = { width: 1000, height: 800, top: 0, left: 0 },
     computedStyle = {}
   } = {}) {
     this.nodeType = 1;
@@ -124,6 +124,14 @@ class FakeElement {
     return matches;
   }
 
+  /** Checks whether another element belongs to this element's subtree. */
+  contains(element) {
+    for (let current = element; current; current = current.parentElement || current.parentNode) {
+      if (current === this) return true;
+    }
+    return false;
+  }
+
   /** Returns the configured viewport rectangle. */
   getBoundingClientRect() {
     return this.rect;
@@ -143,14 +151,54 @@ class FakeTextNode {
  * @param {FakeElement[]} initialNodes Nodes present before script startup.
  * @returns {{nodes: FakeElement[], observer: object, documentElement: FakeElement}}
  */
-function createHarness(initialNodes = []) {
+function createHarness(initialNodes = [], hitTestTarget = null) {
   const nodes = [...initialNodes];
   const observers = [];
   const messages = [];
+  let hitTestOverride = hitTestTarget ? () => hitTestTarget : null;
   const documentElement = new FakeElement({ tagName: "html" });
 
   const document = {
     documentElement,
+    elementFromPoint() {
+      if (hitTestOverride) return hitTestOverride();
+
+      const anchors = [];
+      const visit = (element) => {
+        if (element.matches("a[href]")) anchors.push(element);
+        for (const child of element.children) visit(child);
+      };
+      for (const node of nodes) visit(node);
+
+      return anchors.reverse().find((anchor) => {
+        const style = {
+          display: "block",
+          visibility: "visible",
+          pointerEvents: "auto",
+          ...anchor.computedStyle,
+          ...(anchor.style.getPropertyValue("display")
+            ? { display: anchor.style.getPropertyValue("display") }
+            : {})
+        };
+
+        if (style.display === "none" || style.visibility === "hidden" ||
+            style.pointerEvents === "none") {
+          return false;
+        }
+
+        for (
+          let ancestor = anchor.parentElement;
+          ancestor;
+          ancestor = ancestor.parentElement
+        ) {
+          if (ancestor.inert || ancestor.attributes?.has("inert")) {
+            return false;
+          }
+        }
+
+        return true;
+      }) ?? null;
+    },
     querySelectorAll(selector) {
       const matches = [];
       const visit = (element) => {
@@ -180,10 +228,18 @@ function createHarness(initialNodes = []) {
     innerHeight: 800,
     getComputedStyle(element) {
       return {
+        display: "block",
+        visibility: "visible",
+        contentVisibility: "visible",
+        opacity: "1",
+        pointerEvents: "auto",
         position: "static",
         zIndex: "auto",
         cursor: "auto",
-        ...element.computedStyle
+        ...element.computedStyle,
+        ...(element.style.getPropertyValue("display")
+          ? { display: element.style.getPropertyValue("display") }
+          : {})
       };
     }
   };
@@ -204,7 +260,15 @@ function createHarness(initialNodes = []) {
     }
   });
 
-  return { nodes, observer: observers[0], documentElement, messages };
+  return {
+    nodes,
+    observer: observers[0],
+    documentElement,
+    messages,
+    setElementFromPoint(element) {
+      hitTestOverride = () => element;
+    }
+  };
 }
 
 /** Builds the anti-adblock modal structure supplied for this project. */
@@ -227,6 +291,7 @@ function createFullAntiAdblockModal() {
     text: "يرجى تعطيل مانع الإعلانات"
   }));
 
+  dialog.rect = { width: 600, height: 400, top: 100, left: 200 };
   const header = dialog.append(new FakeElement({
     classes: ["relative", "flex", "flex-row-reverse"]
   }));
@@ -431,4 +496,153 @@ test("does not report the same element more than once while it stays hidden", ()
   }]);
 
   assert.equal(harness.messages.length, 1);
+});
+
+
+test("does not modify or count a matching dialog while Alpine keeps it hidden", () => {
+  const modal = createFullAntiAdblockModal();
+  modal.outer.computedStyle = { display: "none" };
+  const harness = createHarness([modal.outer]);
+
+  assert.equal(modal.outer.style.getPropertyValue("display"), "");
+  assert.equal(modal.outer.attributes.get("aria-hidden"), undefined);
+  assert.equal(harness.messages.length, 0);
+});
+
+test("counts a modal only when Alpine changes it from hidden to visible", () => {
+  const modal = createFullAntiAdblockModal();
+  modal.outer.computedStyle = { display: "none" };
+  const harness = createHarness([modal.outer]);
+
+  modal.outer.computedStyle.display = "block";
+  harness.observer.callback([{
+    type: "attributes",
+    target: modal.outer,
+    attributeName: "style"
+  }]);
+
+  assert.equal(modal.outer.style.getPropertyValue("display"), "none");
+  assert.equal(harness.messages.length, 1);
+  assert.equal(harness.messages[0].target, "modal");
+});
+
+test("does not count a modal hidden by any ancestor", () => {
+  const parent = new FakeElement({ computedStyle: { display: "none" } });
+  const modal = createFullAntiAdblockModal();
+  parent.append(modal.outer);
+  const harness = createHarness([parent]);
+
+  assert.equal(modal.outer.style.getPropertyValue("display"), "");
+  assert.equal(harness.messages.length, 0);
+});
+
+test("does not count a dialog that is transparent or outside the viewport", () => {
+  const transparent = createFullAntiAdblockModal();
+  transparent.outer.computedStyle = { opacity: "0" };
+  const offscreen = createFullAntiAdblockModal();
+  offscreen.outer.rect = {
+    width: 1000, height: 800, top: 900, left: 0
+  };
+  const harness = createHarness([transparent.outer, offscreen.outer]);
+
+  assert.equal(transparent.outer.style.getPropertyValue("display"), "");
+  assert.equal(offscreen.outer.style.getPropertyValue("display"), "");
+  assert.equal(harness.messages.length, 0);
+});
+
+test("does not count an overlay that is hidden or cannot receive pointer input", () => {
+  const hidden = createOverlay();
+  hidden.computedStyle.display = "none";
+  const inert = createOverlay({ href: "https://hai8g.com/another-ad" });
+  inert.computedStyle.pointerEvents = "none";
+  const harness = createHarness([hidden, inert]);
+
+  assert.equal(hidden.style.getPropertyValue("display"), "");
+  assert.equal(inert.style.getPropertyValue("display"), "");
+  assert.equal(harness.messages.length, 0);
+});
+
+test("counts an overlay only when it becomes visible and interactive", () => {
+  const overlay = createOverlay();
+  overlay.computedStyle.display = "none";
+  overlay.computedStyle.pointerEvents = "none";
+  const harness = createHarness([overlay]);
+
+  assert.equal(harness.messages.length, 0);
+  overlay.computedStyle.display = "block";
+  overlay.computedStyle.pointerEvents = "auto";
+  harness.observer.callback([{
+    type: "attributes",
+    target: overlay,
+    attributeName: "style"
+  }]);
+
+  assert.equal(overlay.style.getPropertyValue("display"), "none");
+  assert.equal(harness.messages.length, 1);
+  assert.equal(harness.messages[0].target, "overlay");
+});
+
+test("counts a pointer-enabled overlay inside a pointer-events-none ancestor", () => {
+  const parent = new FakeElement({
+    computedStyle: { pointerEvents: "none" }
+  });
+  const overlay = createOverlay();
+  overlay.computedStyle.pointerEvents = "auto";
+  parent.append(overlay);
+  const harness = createHarness([parent]);
+
+  assert.equal(overlay.style.getPropertyValue("display"), "none");
+  assert.equal(harness.messages.length, 1);
+  assert.equal(harness.messages[0].target, "overlay");
+});
+
+
+test("does not count a click overlay inside an inert ancestor", () => {
+  const parent = new FakeElement();
+  parent.inert = true;
+  const overlay = createOverlay();
+  parent.append(overlay);
+  const harness = createHarness([parent]);
+
+  assert.equal(overlay.style.getPropertyValue("display"), "");
+  assert.equal(harness.messages.length, 0);
+});
+
+
+test("does not count a fullscreen anchor that is behind another element", () => {
+  const overlay = createOverlay();
+  const coveringElement = new FakeElement();
+  const harness = createHarness([overlay], coveringElement);
+
+  assert.equal(overlay.style.getPropertyValue("display"), "");
+  assert.equal(harness.messages.length, 0);
+});
+
+
+test("counts transparent click overlays when hit-testing proves they intercept input", () => {
+  const overlay = createOverlay();
+  overlay.computedStyle.opacity = "0";
+  const harness = createHarness([overlay]);
+
+  assert.equal(overlay.style.getPropertyValue("display"), "none");
+  assert.equal(harness.messages.length, 1);
+  assert.equal(harness.messages[0].target, "overlay");
+});
+
+test("rescans lower overlays after hiding the overlay above them", () => {
+  const lowerOverlay = createOverlay({
+    href: "https://hai8g.com/lower"
+  });
+  const upperOverlay = createOverlay({
+    href: "https://hai8g.com/upper"
+  });
+  const harness = createHarness([lowerOverlay, upperOverlay]);
+
+  assert.equal(lowerOverlay.style.getPropertyValue("display"), "none");
+  assert.equal(upperOverlay.style.getPropertyValue("display"), "none");
+  assert.equal(harness.messages.length, 2);
+  assert.deepEqual(
+    harness.messages.map((message) => message.target),
+    ["overlay", "overlay"]
+  );
 });
