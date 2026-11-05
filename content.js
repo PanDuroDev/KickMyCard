@@ -1,0 +1,263 @@
+(() => {
+  "use strict";
+
+  const ANTI_ADBLOCK_MESSAGE =
+    /(?:يرجى\s+تعطيل|قم\s+بتعطيل)\s+مانع\s+الإعلان(?:ات|ا+ت)/u;
+
+  /**
+   * Hides a matched element without repeatedly writing an already-applied style.
+   * @param {Element|null} element Element to hide.
+   */
+  function hideElement(element) {
+    if (!element || !element.style) return;
+
+    if (
+      element.style.getPropertyValue("display") === "none" &&
+      element.style.getPropertyPriority("display") === "important"
+    ) {
+      return;
+    }
+
+    element.style.setProperty("display", "none", "important");
+    element.setAttribute("aria-hidden", "true");
+  }
+
+  /**
+   * Checks whether an element contains the supported Arabic anti-adblock message.
+   * @param {Element} element Element whose text should be checked.
+   * @returns {boolean} True when the message is present.
+   */
+  function containsAntiAdblockMessage(element) {
+    const text = (element.textContent || "").replace(/\s+/g, " ");
+    return ANTI_ADBLOCK_MESSAGE.test(text);
+  }
+
+  /**
+   * Finds the supplied page's full-screen modal wrapper around a dialog.
+   * @param {Element} dialog Anti-adblock dialog element.
+   * @returns {Element|null} Matching backdrop wrapper, if present.
+   */
+  function findAntiAdblockBackdrop(dialog) {
+    for (
+      let ancestor = dialog.parentElement;
+      ancestor && ancestor !== document.documentElement;
+      ancestor = ancestor.parentElement
+    ) {
+      const classes = ancestor.classList;
+      if (
+        classes &&
+        classes.contains("fixed") &&
+        classes.contains("h-full") &&
+        classes.contains("bg-black/60") &&
+        classes.contains("z-50")
+      ) {
+        return ancestor;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Hides matching dialogs and their known full-screen backdrop wrappers.
+   */
+  function hideAntiAdblockModal() {
+    for (const dialog of document.querySelectorAll('[role="dialog"]')) {
+      if (!containsAntiAdblockMessage(dialog)) continue;
+
+      // Hide the full-screen modal wrapper, not just the inner dialog.
+      // Alpine's generated x-on:* event name changes between renders.
+      const backdrop = findAntiAdblockBackdrop(dialog);
+      hideElement(backdrop || dialog);
+    }
+  }
+
+  /**
+   * Identifies a fixed anchor covering the viewport and matching the ad signature.
+   * @param {HTMLAnchorElement} anchor Anchor to inspect.
+   * @returns {boolean} True when the anchor is the known click-interception layer.
+   */
+  function isFullScreenAdOverlay(anchor) {
+    const rawHref = anchor.href || anchor.getAttribute("href");
+    if (!rawHref) return false;
+
+    let destination;
+    try {
+      destination = new URL(rawHref, location.href);
+    } catch {
+      return false;
+    }
+
+    const knownAdHost =
+      destination.hostname === "hai8g.com" ||
+      destination.hostname.endsWith(".hai8g.com");
+
+    const style = window.getComputedStyle(anchor);
+    if (style.position !== "fixed") return false;
+
+    const rect = anchor.getBoundingClientRect();
+    const viewportWidth =
+      window.innerWidth || document.documentElement.clientWidth;
+    const viewportHeight =
+      window.innerHeight || document.documentElement.clientHeight;
+
+    const coversViewport =
+      rect.width >= viewportWidth - 2 &&
+      rect.height >= viewportHeight - 2 &&
+      rect.top <= 2 &&
+      rect.left <= 2;
+
+    if (!coversViewport) return false;
+
+    const zIndex = Number.parseInt(style.zIndex || "0", 10) || 0;
+    const matchesOverlaySignature =
+      zIndex >= 999 && style.cursor === "default";
+
+    return knownAdHost || matchesOverlaySignature;
+  }
+
+  /**
+   * Hides an anchor when it matches the full-screen ad overlay signature.
+   * @param {Element} anchor Candidate anchor.
+   */
+  function inspectAnchor(anchor) {
+    if (!anchor || anchor.tagName !== "A") return;
+
+    if (isFullScreenAdOverlay(anchor)) {
+      hideElement(anchor);
+    }
+  }
+
+  /**
+   * Inspects an element and all descendant anchors for click-interception overlays.
+   * @param {Document|Element} root Search root.
+   */
+  function inspectAnchors(root) {
+    if (root === document) {
+      for (const anchor of document.querySelectorAll("a[href]")) {
+        inspectAnchor(anchor);
+      }
+      return;
+    }
+
+    if (!root || root.nodeType !== 1) return;
+
+    inspectAnchor(root);
+    for (const anchor of root.querySelectorAll("a[href]")) {
+      inspectAnchor(anchor);
+    }
+  }
+
+  /**
+   * Checks whether an element or text node is inside a dialog.
+   * @param {Node|null} node Node to check.
+   * @returns {boolean} True when the node belongs to a dialog subtree.
+   */
+  function isInsideDialog(node) {
+    let element = node && node.nodeType === 1
+      ? node
+      : node && (node.parentElement || node.parentNode);
+
+    while (element && element !== document.documentElement) {
+      if (
+        element.nodeType === 1 &&
+        element.matches &&
+        element.matches('[role="dialog"]')
+      ) {
+        return true;
+      }
+      element = element.parentElement;
+    }
+
+    return false;
+  }
+
+  /**
+   * Checks whether an element is or contains a dialog.
+   * @param {Element|null} element Candidate element.
+   * @returns {boolean} True when a dialog is found.
+   */
+  function containsDialog(element) {
+    return Boolean(
+      element &&
+      element.nodeType === 1 &&
+      (
+        (element.matches && element.matches('[role="dialog"]')) ||
+        (element.querySelector && element.querySelector('[role="dialog"]'))
+      )
+    );
+  }
+
+  /**
+   * Processes DOM changes and rechecks affected anchors and anti-adblock dialogs.
+   * @param {MutationRecord[]} records Mutation records reported by the observer.
+   */
+  function handleMutations(records) {
+    let shouldInspectDialogs = false;
+
+    for (const record of records) {
+      if (record.type === "attributes") {
+        const target = record.target;
+        const attributeName = record.attributeName;
+
+        if (
+          attributeName === "style" ||
+          attributeName === "class" ||
+          (attributeName === "href" && target.tagName === "A")
+        ) {
+          // Ancestor style/class changes can activate a descendant overlay.
+          inspectAnchors(target);
+        }
+
+        if (
+          isInsideDialog(target) ||
+          containsDialog(target)
+        ) {
+          shouldInspectDialogs = true;
+        }
+
+        continue;
+      }
+
+      if (record.type === "characterData") {
+        if (isInsideDialog(record.target)) {
+          shouldInspectDialogs = true;
+        }
+        continue;
+      }
+
+      if (record.type !== "childList") continue;
+
+      if (isInsideDialog(record.target)) {
+        shouldInspectDialogs = true;
+      }
+
+      for (const addedNode of record.addedNodes) {
+        inspectAnchors(addedNode);
+
+        if (
+          isInsideDialog(addedNode) ||
+          containsDialog(addedNode)
+        ) {
+          shouldInspectDialogs = true;
+        }
+      }
+    }
+
+    if (shouldInspectDialogs) {
+      hideAntiAdblockModal();
+    }
+  }
+
+  inspectAnchors(document);
+  hideAntiAdblockModal();
+
+  const observer = new MutationObserver(handleMutations);
+  observer.observe(document.documentElement, {
+    subtree: true,
+    childList: true,
+    attributes: true,
+    attributeFilter: ["style", "href", "class", "role"],
+    characterData: true
+  });
+})();
