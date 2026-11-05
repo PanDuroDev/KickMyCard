@@ -13,7 +13,7 @@ The content script also checks elements added dynamically after the page loads.
 
 Open the KickMyCard toolbar button to see the total number of elements hidden, with separate counts for anti-adblock dialogs and full-screen click overlays.
 
-A counter increases only when the matching element is currently rendered in the viewport and the extension changes it from visible to hidden. A hidden Alpine dialog, a transparent/off-screen element, or an overlay with pointer events disabled is not counted or forcibly modified. Counters are stored locally with `chrome.storage.local`, shared across Anime3rb tabs in the same browser profile, and are not sent to an external service.
+A counter increases only after the extension successfully hides a matching element that was actually active. Anti-adblock dialogs must be rendered in the viewport. Click overlays must pass viewport hit-testing, so transparent anchors are counted when they really intercept pointer input, while covered, off-screen, hidden, inert, or non-interactive elements are not. When an upper overlay is hidden, the extension rescans to catch matching overlays exposed underneath. Counters are stored locally with `chrome.storage.local`, shared across Anime3rb tabs in the same browser profile, and are not sent to an external service.
 
 Version 1.1.1 starts a fresh statistics series because counts from version 1.1.0 could include elements that were already hidden.
 
