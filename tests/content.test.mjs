@@ -8,36 +8,43 @@ const source = fs.readFileSync(
   "utf8"
 );
 
+/** Minimal CSSStyleDeclaration substitute for deterministic DOM tests. */
 class FakeStyle {
   constructor() {
     this.values = new Map();
     this.priorities = new Map();
   }
 
+  /** Returns a stored CSS property value. */
   getPropertyValue(name) {
     return this.values.get(name) || "";
   }
 
+  /** Returns a stored CSS property priority. */
   getPropertyPriority(name) {
     return this.priorities.get(name) || "";
   }
 
+  /** Stores a CSS property value and its priority. */
   setProperty(name, value, priority = "") {
     this.values.set(name, value);
     this.priorities.set(name, priority);
   }
 }
 
+/** Minimal classList substitute used by the content-script harness. */
 class FakeClassList {
   constructor(values = []) {
     this.values = new Set(values);
   }
 
+  /** Checks whether a class token is present. */
   contains(value) {
     return this.values.has(value);
   }
 }
 
+/** Small DOM element model supporting the selectors used by content.js. */
 class FakeElement {
   constructor({
     tagName = "div",
@@ -61,20 +68,25 @@ class FakeElement {
     this.parentElement = null;
   }
 
+  /** Appends a child and assigns its parent relationship. */
   append(child) {
     child.parentElement = this;
+    child.parentNode = this;
     this.children.push(child);
     return child;
   }
 
+  /** Reads an attribute from the fake element. */
   getAttribute(name) {
     return this.attributes.get(name) ?? null;
   }
 
+  /** Writes an attribute to the fake element. */
   setAttribute(name, value) {
     this.attributes.set(name, String(value));
   }
 
+  /** Supports the role and anchor selectors used by the extension. */
   matches(selector) {
     if (selector === '[role="dialog"]') {
       return this.getAttribute("role") === "dialog";
@@ -86,6 +98,7 @@ class FakeElement {
     return false;
   }
 
+  /** Finds the nearest matching ancestor, including this element. */
   closest(selector) {
     for (let current = this; current; current = current.parentElement) {
       if (current.matches(selector)) return current;
@@ -93,10 +106,12 @@ class FakeElement {
     return null;
   }
 
+  /** Returns the first matching descendant. */
   querySelector(selector) {
     return this.querySelectorAll(selector)[0] ?? null;
   }
 
+  /** Returns all matching descendants in document order. */
   querySelectorAll(selector) {
     const matches = [];
     const visit = (element) => {
@@ -109,11 +124,25 @@ class FakeElement {
     return matches;
   }
 
+  /** Returns the configured viewport rectangle. */
   getBoundingClientRect() {
     return this.rect;
   }
 }
 
+/** Text-node model for characterData mutation coverage. */
+class FakeTextNode {
+  constructor(parentNode) {
+    this.nodeType = 3;
+    this.parentNode = parentNode;
+  }
+}
+
+/**
+ * Executes content.js in an isolated fake DOM and exposes its observer.
+ * @param {FakeElement[]} initialNodes Nodes present before script startup.
+ * @returns {{nodes: FakeElement[], observer: object, documentElement: FakeElement}}
+ */
 function createHarness(initialNodes = []) {
   const nodes = [...initialNodes];
   const observers = [];
@@ -122,7 +151,13 @@ function createHarness(initialNodes = []) {
   const document = {
     documentElement,
     querySelectorAll(selector) {
-      return nodes.filter((node) => node.matches(selector));
+      const matches = [];
+      const visit = (element) => {
+        if (element.matches(selector)) matches.push(element);
+        for (const child of element.children) visit(child);
+      };
+      for (const node of nodes) visit(node);
+      return matches;
     }
   };
 
@@ -131,7 +166,12 @@ function createHarness(initialNodes = []) {
       this.callback = callback;
       observers.push(this);
     }
-    observe() {}
+
+    /** Records the observer target and options for assertions. */
+    observe(target, options) {
+      this.target = target;
+      this.options = options;
+    }
   }
 
   const window = {
@@ -155,9 +195,10 @@ function createHarness(initialNodes = []) {
     MutationObserver: FakeMutationObserver
   });
 
-  return { nodes, observer: observers[0] };
+  return { nodes, observer: observers[0], documentElement };
 }
 
+/** Builds the anti-adblock modal structure supplied for this project. */
 function createFullAntiAdblockModal() {
   const outer = new FakeElement({
     classes: ["fixed", "h-full", "bg-black/60", "overflow-auto", "z-50"],
@@ -187,6 +228,7 @@ function createFullAntiAdblockModal() {
   return { outer, centeringWrapper, dialog };
 }
 
+/** Creates a viewport-sized anchor with configurable overlay signals. */
 function createOverlay({
   href = "https://hai8g.com/4/9023731",
   zIndex = "999",
@@ -204,7 +246,7 @@ function createOverlay({
 
 test("hides the complete modal wrapper and dark backdrop from the supplied HTML", () => {
   const modal = createFullAntiAdblockModal();
-  createHarness([modal.outer, modal.dialog]);
+  createHarness([modal.outer]);
 
   assert.equal(modal.outer.style.getPropertyValue("display"), "none");
   assert.equal(modal.outer.style.getPropertyPriority("display"), "important");
@@ -214,7 +256,7 @@ test("hides the complete modal wrapper and dark backdrop from the supplied HTML"
 test("does not depend on the randomized Alpine window event name", () => {
   const modal = createFullAntiAdblockModal();
   modal.outer.attributes.set("x-on:another-random-id.window", "different-event");
-  createHarness([modal.outer, modal.dialog]);
+  createHarness([modal.outer]);
 
   assert.equal(modal.outer.style.getPropertyValue("display"), "none");
 });
@@ -278,7 +320,7 @@ test("detects the complete modal when inserted after page load", () => {
   const harness = createHarness();
   const modal = createFullAntiAdblockModal();
 
-  harness.nodes.push(modal.outer, modal.dialog);
+  harness.nodes.push(modal.outer);
   harness.observer.callback([{
     type: "childList",
     target: new FakeElement(),
@@ -286,4 +328,78 @@ test("detects the complete modal when inserted after page load", () => {
   }]);
 
   assert.equal(modal.outer.style.getPropertyValue("display"), "none");
+});
+
+test("reinspects descendant anchors when an ancestor class changes", () => {
+  const parent = new FakeElement();
+  const overlay = createOverlay({
+    href: "https://rotating-ad.example/click",
+    zIndex: "0",
+    cursor: "pointer"
+  });
+  parent.append(overlay);
+  const harness = createHarness([parent]);
+
+  assert.equal(overlay.style.getPropertyValue("display"), "");
+  overlay.computedStyle = {
+    position: "fixed",
+    zIndex: "1000",
+    cursor: "default"
+  };
+
+  harness.observer.callback([{
+    type: "attributes",
+    target: parent,
+    attributeName: "class"
+  }]);
+
+  assert.equal(overlay.style.getPropertyValue("display"), "none");
+});
+
+test("rescans a dialog when its text node changes to the anti-adblock message", () => {
+  const modal = createFullAntiAdblockModal();
+  modal.dialog.textContent = "";
+  const harness = createHarness([modal.outer]);
+  const textNode = new FakeTextNode(modal.dialog);
+
+  assert.equal(modal.outer.style.getPropertyValue("display"), "");
+  modal.dialog.textContent = "يرجى تعطيل مانع الإعلانات";
+
+  harness.observer.callback([{
+    type: "characterData",
+    target: textNode
+  }]);
+
+  assert.equal(modal.outer.style.getPropertyValue("display"), "none");
+});
+
+test("rescans when an existing element receives role=dialog", () => {
+  const modal = createFullAntiAdblockModal();
+  modal.dialog.attributes.delete("role");
+  const harness = createHarness([modal.outer]);
+
+  assert.equal(modal.outer.style.getPropertyValue("display"), "");
+  modal.dialog.setAttribute("role", "dialog");
+
+  harness.observer.callback([{
+    type: "attributes",
+    target: modal.dialog,
+    attributeName: "role"
+  }]);
+
+  assert.equal(modal.outer.style.getPropertyValue("display"), "none");
+});
+
+test("registers the observer with the required subtree and mutation options", () => {
+  const harness = createHarness();
+
+  assert.equal(harness.observer.target, harness.documentElement);
+  assert.equal(harness.observer.options.subtree, true);
+  assert.equal(harness.observer.options.childList, true);
+  assert.equal(harness.observer.options.attributes, true);
+  assert.equal(harness.observer.options.characterData, true);
+  assert.deepEqual(
+    [...harness.observer.options.attributeFilter],
+    ["style", "href", "class", "role"]
+  );
 });
