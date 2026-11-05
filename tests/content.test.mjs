@@ -124,6 +124,14 @@ class FakeElement {
     return matches;
   }
 
+  /** Checks whether another element belongs to this element's subtree. */
+  contains(element) {
+    for (let current = element; current; current = current.parentElement || current.parentNode) {
+      if (current === this) return true;
+    }
+    return false;
+  }
+
   /** Returns the configured viewport rectangle. */
   getBoundingClientRect() {
     return this.rect;
@@ -147,10 +155,22 @@ function createHarness(initialNodes = []) {
   const nodes = [...initialNodes];
   const observers = [];
   const messages = [];
+  let hitTestOverride = null;
   const documentElement = new FakeElement({ tagName: "html" });
 
   const document = {
     documentElement,
+    elementFromPoint() {
+      if (hitTestOverride) return hitTestOverride();
+
+      const anchors = [];
+      const visit = (element) => {
+        if (element.matches("a[href]")) anchors.push(element);
+        for (const child of element.children) visit(child);
+      };
+      for (const node of nodes) visit(node);
+      return anchors.at(-1) ?? null;
+    },
     querySelectorAll(selector) {
       const matches = [];
       const visit = (element) => {
@@ -212,7 +232,15 @@ function createHarness(initialNodes = []) {
     }
   });
 
-  return { nodes, observer: observers[0], documentElement, messages };
+  return {
+    nodes,
+    observer: observers[0],
+    documentElement,
+    messages,
+    setElementFromPoint(element) {
+      hitTestOverride = () => element;
+    }
+  };
 }
 
 /** Builds the anti-adblock modal structure supplied for this project. */
@@ -545,6 +573,17 @@ test("does not count a click overlay inside an inert ancestor", () => {
   const overlay = createOverlay();
   parent.append(overlay);
   const harness = createHarness([parent]);
+
+  assert.equal(overlay.style.getPropertyValue("display"), "");
+  assert.equal(harness.messages.length, 0);
+});
+
+
+test("does not count a fullscreen anchor that is behind another element", () => {
+  const overlay = createOverlay();
+  const coveringElement = new FakeElement();
+  const harness = createHarness([overlay]);
+  harness.setElementFromPoint(coveringElement);
 
   assert.equal(overlay.style.getPropertyValue("display"), "");
   assert.equal(harness.messages.length, 0);
