@@ -388,7 +388,8 @@
   hideAntiAdblockModal();
 
   const observer = new MutationObserver(handleMutations);
-  observer.observe(document.documentElement, {
+  // Observe the Document itself: document_start runs before documentElement exists.
+  observer.observe(document, {
     subtree: true,
     childList: true,
     attributes: true,
