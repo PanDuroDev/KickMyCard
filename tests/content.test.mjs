@@ -151,12 +151,14 @@ class FakeTextNode {
  * @param {FakeElement[]} initialNodes Nodes present before script startup.
  * @returns {{nodes: FakeElement[], observer: object, documentElement: FakeElement}}
  */
-function createHarness(initialNodes = [], hitTestTarget = null) {
+function createHarness(initialNodes = [], hitTestTarget = null, options = {}) {
   const nodes = [...initialNodes];
   const observers = [];
   const messages = [];
   let hitTestOverride = hitTestTarget ? () => hitTestTarget : null;
-  const documentElement = new FakeElement({ tagName: "html" });
+  const documentElement = options.withoutDocumentElement
+    ? null
+    : new FakeElement({ tagName: "html" });
 
   const document = {
     documentElement,
@@ -470,10 +472,34 @@ test("rescans when an existing element receives role=dialog", () => {
   assert.equal(modal.outer.style.getPropertyValue("display"), "none");
 });
 
+test("starts at document_start and observes Document before documentElement exists", () => {
+  const manifest = JSON.parse(fs.readFileSync(
+    new URL("../manifest.json", import.meta.url),
+    "utf8"
+  ));
+
+  assert.equal(manifest.content_scripts[0].run_at, "document_start");
+
+  const harness = createHarness([], null, { withoutDocumentElement: true });
+  assert.equal(harness.documentElement, null);
+  assert.equal(harness.observer.target, harness.document);
+
+  const modal = createFullAntiAdblockModal();
+  harness.nodes.push(modal.outer);
+  harness.observer.callback([{
+    type: "childList",
+    target: harness.document,
+    addedNodes: [modal.outer]
+  }]);
+
+  assert.equal(modal.outer.style.getPropertyValue("display"), "none");
+  assert.equal(harness.messages.length, 1);
+});
+
 test("registers the observer with the required subtree and mutation options", () => {
   const harness = createHarness();
 
-  assert.equal(harness.observer.target, harness.documentElement);
+  assert.equal(harness.observer.target, harness.document);
   assert.equal(harness.observer.options.subtree, true);
   assert.equal(harness.observer.options.childList, true);
   assert.equal(harness.observer.options.attributes, true);
