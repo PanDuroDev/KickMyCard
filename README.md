@@ -7,7 +7,7 @@ KickMyCard is a lightweight Chrome/Chromium extension that removes two intrusive
 - **The complete anti-adblock modal:** detects the Arabic message asking visitors to disable their ad blocker, then hides the outer fixed wrapper including its dark `bg-black/60` backdrop. It does not rely on the randomized Alpine event attribute.
 - **The invisible click overlay:** detects the fixed, viewport-sized anchor used to intercept clicks. It recognizes the supplied `hai8g.com` destination and the same full-screen overlay signature if its destination host rotates.
 
-The content script also checks elements added dynamically after the page loads.
+The content script starts at `document_start` and observes the `Document` itself, so it can catch the modal as soon as the page creates it, before the browser's next paint. This prevents the initial one-second flash caused by waiting until `document_idle`. It also checks elements added dynamically later.
 
 ## Popup statistics
 
@@ -15,7 +15,7 @@ Open the KickMyCard toolbar button to see the total number of elements hidden, w
 
 A counter increases only after the extension successfully hides a matching element that was actually active. Anti-adblock dialogs must be rendered in the viewport. Click overlays must pass viewport hit-testing, so transparent anchors are counted when they really intercept pointer input, while covered, off-screen, hidden, inert, or non-interactive elements are not. When an upper overlay is hidden, the extension rescans to catch matching overlays exposed underneath. Counters are stored locally with `chrome.storage.local`, shared across Anime3rb tabs in the same browser profile, and are not sent to an external service.
 
-Version 1.1.1 starts a fresh statistics series because counts from version 1.1.0 could include elements that were already hidden.
+Version 1.1.1 starts a fresh statistics series because counts from version 1.1.0 could include elements that were already hidden. Version 1.1.2 changes the content-script startup timing to prevent the anti-adblock modal from flashing before it is removed.
 
 ## Scope
 
